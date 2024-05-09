@@ -7,6 +7,17 @@
     <!--加入icon library，為了那個X-->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css">
     <title>Member Page</title>
+    <style>
+        body{
+            min-height: 100vh;
+            margin: 0; 
+            padding: 0;
+            font-family: 'Arial', sans-serif;
+        }
+        h2{
+            font-family: 'Helvetica', sans-serif;
+        }
+    </style>
     <script>
         function confirmDelete(messageId) {
             if (confirm("確定要刪?")){
@@ -20,17 +31,18 @@
     <div style="background-color: lightblue; text-align: center; padding-top: 20px; padding-bottom: 20px;">
         <h1 lang="zh-Hant">歡迎光臨，這是會員頁</h1>
     </div>
-    <div style="text-align: center;">
+
+    <div style="text-align: center; margin-top: 50px; margin-bottom: 50px;">
         <!--要記得讓會員的名字可以更換-->
         <h2 lang="zh-Hant">{{ realname }}，歡迎登入系統</h2>
         <!-- Use a link for logout instead of a form to match the GET request -->
         <a href="/signout" style="text-decoration: underline; padding: 10px 20px; border-radius: 5px; font-weight: bold;">登出系統</a>
     </div>
+
     <hr>
 
-
     <!--留言系統-->
-    <div style="text-align: center;">
+    <div style="text-align: center; margin-top: 50px; margin-bottom: 50px;">
         <h2 lang="zh-Hant">快來留言吧</h2>
         <form id="message" action="/createMessage" method="post">
             <!--realname-->
@@ -44,19 +56,20 @@
             </div>
         </form>
     </div>
+
     <hr>
 
     <!--previous message from message table-->
-    <div style="text-align: center;">
-        <h2 lang="zh-Hant">之前的留言</h2>
+    <div style="text-align: center; margin-top: 30px; margin-bottom: 50px;">
+        <h2 lang="zh-Hant">留言版</h2>
         <!--給在messages裡面的值一個variable，然後跑迴圈把所有的留言都顯示出來-->
         {% for id, owner_id, content, name in messages %}
         <div>
-            <p>{{ name }}: {{ content }}
+            <p><span style="font-size: 18px;">{{ name }}</span>: {{ content }}
             {% if owner_id == member_id %}
                 <!--跟使用者確認真的要刪掉嗎?使用者確認以後，才submit deleteForm{{id}}給server-->
                 <button onclick="confirmDelete({{ id }});">
-                    <i class="fas fa-times"></i>
+                    <i class="fas fa-times" style="font-size: 10px;"></i>
                 </button>
                 <!--這邊的id是確認message table裡面哪一個message會被刪除-->
                 <form id="deleteForm{{ id }}" action="/deleteMessage" method="post">
