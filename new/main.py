@@ -86,33 +86,41 @@ async def signup(signupRealname: str = Form(...), signupUsername: str = Form(...
     return RedirectResponse(url="/", status_code=303)
 
 
+#增加訊息
 @app.post("/createMessage")
 async def add_message(request: Request, newContent: str = Form(...)):
     member_id = request.session.get('id')
+    #沒有id的話，送到error頁面
     if not member_id:
         request.session.clear()
-        cursor.close()
-        conn.close()
         return RedirectResponse(url='/error?message=Session not found', status_code = 303)
 
-    conn = get_db_connection()
-    if conn is None:
-        raise HTTPException(status_code=500, detail="Database connection failed")
-    
-    cursor = conn.cursor()
     try:
-        #insert new message
-        cursor.execute(
-            "INSERT INTO message (member_id, content, like_count, time) VALUES (%s, %s, %s, NOW())", 
-            (member_id, newContent, 0)
-            )
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
-    return RedirectResponse(url='/member', status_code=303)
+        with get_db_connection() as conn:
+            #連線有問題的話
+            if conn is None:
+                raise HTTPException(status_code=500, detail="Database connection failed")
+            
+            #使用with，做完馬上關掉conn&cursor
+            with conn.cursor() as cursor:
+                #insert new message
+                cursor.execute(
+                    "INSERT INTO message (member_id, content, like_count, time) VALUES (%s, %s, %s, NOW())", 
+                    (member_id, newContent, 0)
+                )
+                conn.commit()
+    #HTTPException的作用是可以跟client用HTTP protocode溝通error，所以把這個跟普通的Exception分開
+    except HTTPException as http_ex:
+        raise http_ex
+    except Exception as e:
+        request.session.clear()
+        return RedirectResponse(url='/', status_code=500)
+    #如果try block成功執行，沒有任何error的話，就重新送回member page
+    else:
+        return RedirectResponse(url='/member', status_code=303)
         
 
+#刪除訊息
 @app.post("/deleteMessage")
 async def delete_message(request: Request, message_id: int = Form(...)):
     member_id = request.session.get('id')
@@ -130,10 +138,8 @@ async def delete_message(request: Request, message_id: int = Form(...)):
     conn.close()
     return RedirectResponse(url='/member', status_code=303)
 
-#測試中!!!!!!!___________________________________________________________
 
-
-
+#登入會員
 @app.post("/signin")
 #request是一個參數，並註解Request。 註解代表講清楚這個變數包含了什麼type of data或是這個函數應該期待什麼type的data會輸入或返回
 #後面兩個參數從表格資料提取username & password
@@ -177,26 +183,6 @@ async def handle_login(request: Request, username: str = Form(None), password: s
         return RedirectResponse(url='/error?message=Username or password is not correct', status_code = 303)
 
 
-    #如果其中一個欄位為空白，使用者被redirect到error page
-    #在url裡面的message會被jinja2使用在error.html裡面
-    #status_code=303代表客戶會收到使用GET獲得的不同的URL，避免有人在登出的過程中，不小心重複登出(可能發生在重整頁面時)
-    #也避免敏感內容的頁面被存在瀏覽器的cache裡面，cache會在你第一次訪問某網頁時，存一些資料在你的電腦，這樣下次訪問時更快顯示
-    #if not username or not password:
-    #    return RedirectResponse(url='/error?message=Please enter username and password', status_code=303)
-    #如果username跟password都正確，給session裡面加一個key:value，並redirect到member page
-    #if username == "test" and password == "test":
-    #    request.session['signed_in'] = True
-    #    return RedirectResponse(url='/member', status_code=303)
-    #如果都錯誤，清空session裡面的資料(假設之前登出成功過)
-    #redirect到error page，在url裡面的message會被jinja2使用在error.html裡面
-    #else:
-    #    request.session.clear()
-    #    return RedirectResponse(url='/error?message=帳號、或密碼輸入錯誤', status_code=303)
-
-
-
-
-
 #處理登出
 @app.get("/signout")
 async def signout(request: Request):
@@ -210,59 +196,65 @@ async def signout(request: Request):
 #進入會員頁前的中繼站API
 @app.get("/member")
 async def member_page(request: Request):
+    
+    #如果收到的session是空的或錯誤，redirect到首頁
+    if not (request.session.get('signed_in') and 'id' in request.session):
+        request.session.clear()
+        return RedirectResponse(url='/', status_code=303)  
+
     #如果收到的session裡面的value是True，回傳給user我們做的html file
-    if request.session.get('signed_in') and 'id' in request.session:
-        #再次verify
-        member_id = request.session.get('id')
+    #再次verify
+    member_id = request.session.get('id')
+    #把程式碼寫在try裡面，是跟Python說"試著執行這個程式碼，但如果有error，就用我指定的方式處理"
+    #避免crash，可以搭配except、else、finally、with
+    try:
         conn = get_db_connection()
-        #如果連線中斷了
+        #如果連線中斷了，送使用者回老家
         if conn is None:
             request.session.clear()
             return RedirectResponse(url='/error?message=Database connection failed', status_code=500)
         
-        #如果連線成功
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name, username FROM member WHERE id = %s", (member_id,))        
-        user = cursor.fetchone()
-        
-        
+        #使用with conn+with conn.cursor() as cursor可以確保connection+cursor都被關掉(即使有exception)
+        #取代cursor.close()、conn.close()
+        with conn:
+            with conn.cursor() as cursor:
+                #如果連線成功
+                #照著session裡面的id到member table拿資料
+                cursor.execute("SELECT id, name, username FROM member WHERE id = %s", (member_id,))        
+                user = cursor.fetchone()
 
-        #如果用戶id不存在
-        if user is None:
-            request.session.clear()
-            cursor.close()
-            conn.close()
-            return RedirectResponse(url='/', status_code=303)
-        
-        verify_id, verify_realname, verify_username = user
+                #如果用戶id不存在，送回老家
+                if user is None:
+                    request.session.clear()
+                    return RedirectResponse(url='/', status_code=303)  
+                
+                #用戶存在的話，才開始fetch message from "message" table in mysql
+                #messages裡面資料的順序(id, member_id, content, member的name)
+                #這裡的m.time很重要，因為兩個table都有time column，如果沒有寫照哪一個排列，會有錯誤
+                cursor.execute("""
+                               
+                                SELECT m.id, m.member_id, m.content, mb.name 
+                                FROM message m
+                                JOIN member mb ON m.member_id = mb.id
+                                ORDER BY m.time DESC
+                """)
+                messages = cursor.fetchall()    
 
-        if request.session['name'] == verify_realname and request.session['username'] == verify_username:
-            #fetch message from "message" table in mysql
-            cursor.execute("""
-                           SELECT m.id, m.member_id, m.content, mb.name 
-                           FROM message m
-                           JOIN member mb ON m.member_id = mb.id
-                           ORDER BY m.time DESC
-            """)
-            messages = cursor.fetchall()
             #'用戶'為預設值，如果database裡面剛好沒有名字的話
-            realname = request.session.get('name', '預設用戶名稱')        
-            cursor.close()
-            conn.close()
+            realname = request.session.get('name', '預設用戶名稱')      
             response = templates.TemplateResponse("member.html", {
                 "request": request, 
                 "realname": realname,
                 "messages": messages,
                 "member_id": member_id
-                })
+            })
             #確保這個網頁不會被存在使用者的cache裡面，在沒認證的狀態下被revisit
             response.headers['Cache-Control'] = 'no-store'
-            return response
-
-    #如果收到的session是空的或錯誤，redirect到首頁
-    else:
+            return response 
+    # e是一個 variable 用來抓住 exception object，這個object包含細節資訊，可以印出來看錯誤是什麼
+    except Exception as e:
         request.session.clear()
-        return RedirectResponse(url='/', status_code=303)    
+        return RedirectResponse(url='/', status_code=500) 
 
 
 #使用了Jinja2在error.html裡面插入error message
@@ -271,6 +263,7 @@ async def error_page(request: Request):
     #從request的query parameters(查詢參數)中找'message'；如果message=None的話，就預設為'unknown error'
     message = request.query_params.get('message', 'Unknown error')
     return templates.TemplateResponse("error.html", {"request": request, "message": message})
+
 
 #提供登入的頁面signin.html
 #使用Jinja2傳遞Request object到templates，這樣我們在templates裡面也可以使用request的內容
